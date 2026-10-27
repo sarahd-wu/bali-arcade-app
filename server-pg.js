@@ -22,8 +22,18 @@ client.connect()
     .then(() => console.log('✅ Connected to PostgreSQL'))
     .catch(err => console.error('❌ Database connection error:', err));
 
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
+
+// Log every incoming request so we can see what the frontend is sending
+app.use((req, res, next) => {
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+    next();
+});
 
 // ============ API ENDPOINTS ============
 
@@ -69,44 +79,122 @@ app.get('/api/map/:floor', async (req, res) => {
             });
         }
 
-        const result = await client.query(`
-            SELECT
-                s.id,
-                s.store_id,
-                s.name,
-                s.type,
-                s.category,
-                s.status,
-                s.geometry_type,
-                s.coordinates,
-                f.floor_number,
-                f.floor_name
-            FROM mall.stores s
-            JOIN mall.floors f
-                ON s.floor_id = f.id
-            WHERE f.floor_number = $1
-        `, [floorNumber]);
+        let geojson = null;
 
-        const geojson = {
-            type: "FeatureCollection",
-            features: result.rows.map(store => ({
-                type: "Feature",
-                properties: {
-                    id: store.id,
-                    store_id: store.store_id,
-                    name: store.name,
-                    type: store.type,
-                    category: store.category,
-                    status: store.status,
-                    floor_number: store.floor_number,
-                    floor_name: store.floor_name
-                },
-                geometry: {
-                    type: store.geometry_type,
-                    coordinates: store.coordinates
+        // 1. Try public.stores (PostGIS geometry)
+        try {
+            const publicResult = await client.query(`
+                SELECT
+                    s.id,
+                    s.store_number,
+                    s.name,
+                    COALESCE(s.store_type, 'retail') AS category,
+                    'shop' AS type,
+                    ST_AsGeoJSON(s.geom)::json AS geometry
+                FROM public.stores s
+                WHERE s.geom IS NOT NULL
+                ORDER BY s.id
+            `);
+
+            if (publicResult.rows.length > 0) {
+                let facilities = [];
+                try {
+                    const featResult = await client.query(`
+                        SELECT
+                            id,
+                            name,
+                            feature_type AS type,
+                            COALESCE(feature_type, 'facility') AS category,
+                            ST_AsGeoJSON(geom)::json AS geometry
+                        FROM public.map_features
+                        WHERE geom IS NOT NULL
+                        ORDER BY id
+                    `);
+                    facilities = featResult.rows;
+                } catch (e) {
+                    // map_features optional
                 }
-            }))
-        };
+
+                const allFeatures = [
+                    ...publicResult.rows.map(s => ({
+                        type: "Feature",
+                        properties: {
+                            id: s.id,
+                            store_id: s.store_number,
+                            name: s.name,
+                            type: s.type,
+                            category: s.category,
+                            status: "active",
+                            floor_number: floorNumber,
+                            floor_name: "Ground Floor"
+                        },
+                        geometry: s.geometry
+                    })),
+                    ...facilities.map(f => ({
+                        type: "Feature",
+                        properties: {
+                            id: f.id,
+                            name: f.name,
+                            type: f.type,
+                            category: f.category,
+                            status: "active",
+                            floor_number: floorNumber,
+                            floor_name: "Ground Floor"
+                        },
+                        geometry: f.geometry
+                    }))
+                ];
+
+                geojson = {
+                    type: "FeatureCollection",
+                    features: allFeatures
+                };
+            }
+        } catch (postgisError) {
+            // Fallback to mall.stores if public.stores is not available
+        }
+
+        // 2. Fallback to mall.stores
+        if (!geojson) {
+            const result = await client.query(`
+                SELECT
+                    s.id,
+                    s.store_id,
+                    s.name,
+                    s.type,
+                    s.category,
+                    s.status,
+                    s.geometry_type,
+                    s.coordinates,
+                    f.floor_number,
+                    f.floor_name
+                FROM mall.stores s
+                JOIN mall.floors f
+                    ON s.floor_id = f.id
+                WHERE f.floor_number = $1
+            `, [floorNumber]);
+
+            geojson = {
+                type: "FeatureCollection",
+                features: result.rows.map(store => ({
+                    type: "Feature",
+                    properties: {
+                        id: store.id,
+                        store_id: store.store_id,
+                        name: store.name,
+                        type: store.type,
+                        category: store.category,
+                        status: store.status,
+                        floor_number: store.floor_number,
+                        floor_name: store.floor_name
+                    },
+                    geometry: {
+                        type: store.geometry_type,
+                        coordinates: store.coordinates
+                    }
+                }))
+            };
+        }
 
         res.json(geojson);
 
@@ -201,6 +289,82 @@ app.get('/api/stores/:id', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// 5.1 Update specific store in PostgreSQL (supports both PUT and POST)
+const handleStoreUpdate = async (req, res) => {
+    try {
+        const idParam = req.params.id;
+        const { name, category, id: bodyId, store_number: bodyStoreNumber } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: "Store name cannot be empty" });
+        }
+
+        const cleanName = name.trim();
+        const cleanCategory = category ? category.trim() : null;
+        let rowsUpdated = 0;
+        let updatedStore = null;
+
+        // 1. Update public.stores
+        try {
+            const numId = /^\d+$/.test(idParam) ? parseInt(idParam) : (/^\d+$/.test(String(bodyId)) ? parseInt(bodyId) : -1);
+            const storeNum = String(bodyStoreNumber || idParam);
+
+            const query = `
+                UPDATE public.stores
+                SET name = $1,
+                    store_type = COALESCE($2, store_type)
+                WHERE id = $3
+                   OR store_number = $4
+                   OR store_number = $5
+                RETURNING id, store_number, name, store_type;
+            `;
+            const params = [cleanName, cleanCategory, numId, storeNum, idParam];
+
+            const result = await client.query(query, params);
+            rowsUpdated += result.rowCount;
+            if (result.rowCount > 0) {
+                updatedStore = result.rows[0];
+                console.log(`💾 [POSTGRESQL] Successfully saved store name: "${updatedStore.name}" (Store #: ${updatedStore.store_number}, ID: ${updatedStore.id})`);
+            }
+        } catch (dbErr) {
+            console.error("public.stores update error:", dbErr.message);
+        }
+
+        // 2. Also sync mall.stores if it exists
+        try {
+            await client.query(`
+                UPDATE mall.stores
+                SET name = $1, category = COALESCE($2, category)
+                WHERE store_id = $3 OR store_id = $4
+            `, [cleanName, cleanCategory, idParam, String(bodyStoreNumber || '')]);
+        } catch (mallErr) {
+            // Optional table
+        }
+
+        if (rowsUpdated > 0) {
+            res.json({
+                success: true,
+                message: "Store successfully updated in PostgreSQL database",
+                store: updatedStore,
+                rowsUpdated
+            });
+        } else {
+            console.warn(`⚠️ [POSTGRESQL] No store found matching ID/number '${idParam}'`);
+            res.json({
+                success: false,
+                message: `Store '${idParam}' not found in database to update`,
+                rowsUpdated: 0
+            });
+        }
+    } catch (error) {
+        console.error("Store update error:", error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+app.put('/api/stores/:id', handleStoreUpdate);
+app.post('/api/stores/:id', handleStoreUpdate);
 
 // 6. Search stores
 app.get('/api/search', async (req, res) => {
@@ -300,16 +464,25 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`\n🚀 Bali Arcade API Server (PostgreSQL)`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 Bali Arcade API Server (PostgreSQL) is RUNNING!`);
     console.log(`📡 URL: http://localhost:${PORT}`);
-    console.log(`\n📋 Available Endpoints:`);
+    console.log(`📋 Available Endpoints:`);
     console.log(`   GET  /api/health`);
     console.log(`   GET  /api/floors`);
     console.log(`   GET  /api/map/:floor       (GeoJSON)`);
     console.log(`   GET  /api/stores`);
-    console.log(`   GET  /api/stores/:id`);
+    console.log(`   PUT  /api/stores/:id       (Save to PostgreSQL)`);
     console.log(`   GET  /api/search?q=keyword`);
     console.log(`   GET  /api/categories`);
     console.log(`   GET  /api/stats\n`);
+}).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ PORT ${PORT} IS ALREADY IN USE!`);
+        console.error(`👉 Another process is already running on port ${PORT}.`);
+        console.error(`👉 In PowerShell, run: Stop-Process -Name node -Force`);
+        console.error(`👉 Then start again: node server-pg.js\n`);
+    } else {
+        console.error(`\n❌ Server error:`, err);
+    }
 });

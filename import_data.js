@@ -3,11 +3,11 @@ const fs = require('fs');
 const path = require('path');
 
 const client = new Client({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'bali_arcade',
-    password: '123', // use your actual DB password
-    port: 5432,
+    user: process.env.DB_USER || process.env.PGUSER || 'postgres',
+    host: process.env.DB_HOST || process.env.PGHOST || 'localhost',
+    database: process.env.DB_NAME || process.env.PGDATABASE || 'bali_arcade',
+    password: process.env.DB_PASS || process.env.PGPASSWORD,
+    port: Number(process.env.DB_PORT || process.env.PGPORT || 5432),
 });
 
 async function importData() {
@@ -23,16 +23,15 @@ async function importData() {
 
             const query = `
                 INSERT INTO mall.stores
-                    (store_id, name, type, floor_id, category, status, geometry_type, coordinates)
+                    (store_id, name, type, floor_id, category, status, coordinates)
                 VALUES
-                    ($1, $2, $3, (SELECT id FROM mall.floors WHERE floor_number = 0), $4, $5, $6, $7)
+                    ($1, $2, $3, (SELECT id FROM mall.floors WHERE floor_number = 0), $4, $5, $6)
                 ON CONFLICT (store_id) DO UPDATE SET
                     name = CASE WHEN mall.stores.name IS NOT NULL AND mall.stores.name != mall.stores.store_id THEN mall.stores.name ELSE EXCLUDED.name END,
                     type = EXCLUDED.type,
                     floor_id = EXCLUDED.floor_id,
                     category = EXCLUDED.category,
                     status = EXCLUDED.status,
-                    geometry_type = EXCLUDED.geometry_type,
                     coordinates = EXCLUDED.coordinates
                 RETURNING id
             `;
@@ -43,7 +42,6 @@ async function importData() {
                 props.type || 'shop',
                 props.category || 'retail',
                 props.status || 'active',
-                feature.geometry.type,
                 JSON.stringify(feature.geometry.coordinates),
             ];
 

@@ -388,10 +388,36 @@ function selectFeature(feature, layer) {
     layer.setStyle({ color: '#9a6c35', weight: 2.5, opacity: 1, fillColor: '#f3d8b5', fillOpacity: 0.72 });
     layer.bringToFront();
     setDetails(feature);
-    // Smoothly pan to the store without blowing up the map zoom level!
-    if (layer.getBounds().isValid()) {
-        map.panTo(layer.getBounds().getCenter(), { animate: true });
-    }
+    
+    // Get the actual location of the selected shop or room
+let destination = null;
+
+if (layer.getBounds && layer.getBounds().isValid()) {
+    destination = layer.getBounds().getCenter();
+} else if (layer.getLatLng) {
+    destination = layer.getLatLng();
+}
+
+// Move the buddy to the selected shop and announce its details
+if (destination && mapBuddy) {
+    const saved = localStoreData(feature) || {};
+    const category = saved.category ||
+                     feature.properties?.category ||
+                     feature.properties?.type ||
+                     "Mall Space";
+
+    buddyWalkTo(
+        destination,
+        featureLabel(feature),
+        category
+    );
+}
+
+/* Pan the map to the selected shop
+if (destination) {
+    map.panTo(destination, { animate: true });
+}
+    */
 }
 function matchesCategory(feature, label) { if (!label) return true; const value = `${feature.properties?.category || ''} ${feature.properties?.type || ''} ${featureLabel(feature)}`.toLowerCase(); const aliases = { 'elevator': ['elevator', 'lift'], 'lifts': ['elevator', 'lift'], 'restroom': ['restroom', 'toilet'], 'toilets': ['restroom', 'toilet'], 'escalator': ['escalator'], 'escalators': ['escalator'], 'parking': ['parking'], 'fire exit': ['fire exit'], 'fire exits': ['fire exit'] }; return (aliases[label.toLowerCase()] || [label.toLowerCase()]).some(alias => value.includes(alias)); }
 function filterFeatures(label) { activeCategory = label; document.querySelectorAll('.category-item, .category-filter').forEach(button => button.classList.toggle('is-active', button.dataset.category === label)); if (!storeLayer) return; storeLayer.eachLayer(layer => { const visible = matchesCategory(layer.feature, label); layer.setStyle({ opacity: visible ? 0.85 : 0.08, fillOpacity: visible ? 0.32 : 0.03 }); const marker = featureMarkers.get(layer.feature); if (marker) marker.setOpacity(visible ? 1 : 0.08); }); }
@@ -608,3 +634,6 @@ wireFloorSelect();
 setupAuth();
 map.fitBounds(floorBounds);
 fetch(`${API_BASE}/api/map/0`).then(response => { if (!response.ok) throw new Error('Failed to load map data'); return response.json(); }).then(data => { allFeatures = data.features || []; storeLayer = L.geoJSON(data, { pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 8, color: '#655d54', fillColor: '#f7f1e8', fillOpacity: 0.8 }), style: () => ({ color: '#655d54', weight: 1.2, opacity: 0.85, fillColor: '#f7f1e8', fillOpacity: 0.32 }), onEachFeature: (feature, layer) => { featureLayers.set(feature, layer); addFeatureIcon(feature, layer); layer.on({ mouseover: () => { if (layer !== selectedLayer) layer.setStyle({ fillColor: '#e8dfcf', fillOpacity: 0.65, weight: 1.8 }); }, mouseout: () => { if (layer !== selectedLayer) resetLayerStyle(layer); }, click: () => selectFeature(feature, layer) }); } }).addTo(map); loadLocalStores(); if (activeCategory) filterFeatures(activeCategory); }).catch(error => console.error('Map data could not be loaded:', error));
+
+
+

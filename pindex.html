@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BALI - ARCADE | Building</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #eef0f7;
+      --ink: #23254a;
+      --edge: #b9bde0;
+      --pin: #ff6b3d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "DM Sans", system-ui, sans-serif;
+    }
+
+    body {
+      background: radial-gradient(1100px 760px at 62% 50%, #fbfcff, var(--bg) 70%);
+    }
+
+    button,
+    select {
+      font: inherit;
+      color: var(--ink);
+    }
+
+    button:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--pin);
+      outline-offset: 2px;
+    }
+
+    /* ===== focus stack (vertical only) ===== */
+    .scene {
+      position: fixed;
+      inset: 0;
+      touch-action: none;
+      cursor: grab;
+      transition: opacity .45s, transform .55s;
+    }
+
+    .scene.dragging {
+      cursor: grabbing;
+    }
+
+    .scene.leaving {
+      opacity: 0;
+      transform: scale(1.18);
+      pointer-events: none;
+    }
+
+    .fl {
+      position: absolute;
+      pointer-events: none;
+      will-change: transform;
+    }
+
+    .sq {
+      position: absolute;
+      inset: 0;
+      will-change: transform;
+    }
+
+    .sq img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      user-select: none;
+      -webkit-user-drag: none;
+      will-change: opacity;
+    }
+
+    .sq .edge {
+      filter: brightness(.66) saturate(1.3);
+    }
+
+    .ground {
+      position: absolute;
+      height: 46px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(35, 37, 74, .28), rgba(35, 37, 74, 0) 68%);
+      pointer-events: none;
+    }
+
+    .chip {
+      position: absolute;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .85);
+      border: 1px solid var(--edge);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      pointer-events: none;
+      transition: background .25s, color .25s;
+    }
+
+    .chip.on {
+      background: var(--pin);
+      border-color: var(--pin);
+      color: #fff;
+    }
+
+    /* ===== chrome ===== */
+    .hero {
+      position: fixed;
+      left: 6vw;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      max-width: min(560px, 44vw);
+      transition: opacity .5s;
+    }
+
+    .hero .kicker {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--pin);
+    }
+
+    .hero h1 {
+      margin: 8px 0 0;
+      font-size: clamp(30px, 4.1vw, 58px);
+      line-height: 1;
+      letter-spacing: -.025em;
+      white-space: nowrap;
+    }
+
+    .hero .sub {
+      margin: 14px 0 0;
+      font-size: clamp(15px, 1.4vw, 19px);
+      opacity: .72;
+    }
+
+    .hero ul {
+      list-style: none;
+      margin: 22px 0 26px;
+      padding: 0;
+      display: grid;
+      gap: 9px;
+      font-size: 14px;
+    }
+
+    .hero li::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--pin);
+      margin-right: 11px;
+    }
+
+    .hero .cta {
+      padding: 15px 28px;
+      border: 0;
+      border-radius: 16px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .2s, transform .2s;
+    }
+
+    .hero .cta:hover {
+      background: #363a73;
+      transform: translateY(-2px);
+    }
+
+    .hero .hint {
+      margin: 12px 0 0;
+      font-size: 12px;
+      opacity: .55;
+    }
+
+    .focus-ui {
+      transition: opacity .45s;
+    }
+
+    body[data-mode=overview] .focus-ui {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    body[data-mode=focus] .hero {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .title {
+      position: fixed;
+      left: 24px;
+      top: 20px;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .title p {
+      margin: 4px 0 0;
+      font-size: 13px;
+      opacity: .65;
+    }
+
+    .card {
+      position: fixed;
+      left: 24px;
+      top: 92px;
+      z-index: 5;
+      padding: 12px 16px;
+      border: 1px solid var(--edge);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .88);
+      min-width: 190px;
+      pointer-events: none;
+    }
+
+    .card b {
+      display: block;
+      font-size: 18px;
+    }
+
+    .card span {
+      font-size: 13px;
+      opacity: .7;
+    }
+
+    .card small {
+      display: block;
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--pin);
+      font-weight: 700;
+    }
+
+    .rail {
+      position: fixed;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      display: grid;
+      gap: 6px;
+      justify-items: stretch;
+    }
+
+    .rail button {
+      min-width: 112px;
+      padding: 8px 12px;
+      border: 1px solid var(--edge);
+      border-radius: 12px;
+      background: #fff;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .rail button:hover {
+      background: #e4e6f6;
+    }
+
+    .rail button.on {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #fff;
+    }
+
+    .rail .step {
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .bar {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 5;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 12px;
+      border: 1px solid var(--edge);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .92);
+      font-size: 13px;
+    }
+
+    .bar button,
+    .pill {
+      padding: 8px 14px;
+      border: 1px solid var(--edge);
+      border-radius: 12px;
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .bar button:hover,
+    .pill:hover {
+      background: #e4e6f6;
+    }
+
+    .bar .go {
+      background: var(--ink);
+      color: #fff;
+      border-color: var(--ink);
+    }
+
+    /* ===== buddy ===== */
+    .buddy.walking svg {
+      animation: bob .32s ease-in-out infinite;
+    }
+
+    .buddy.walking .legL {
+      animation: step .32s ease-in-out infinite alternate;
+    }
+
+    .buddy.walking .legR {
+      animation: step .32s ease-in-out infinite alternate-reverse;
+    }
+
+    .buddy .sprite,
+    .buddy svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .legL,
+    .legR {
+      transform-box: fill-box;
+      transform-origin: 50% 0;
+    }
+
+    .eyes {
+      transform-box: fill-box;
+      transform-origin: 50% 50%;
+      animation: blink 4.5s infinite;
+    }
+
+    @keyframes bob {
+      50% {
+        transform: translateY(-3px);
+      }
+    }
+
+    @keyframes step {
+      from {
+        transform: rotate(18deg);
+      }
+
+      to {
+        transform: rotate(-18deg);
+      }
+    }
+
+    @keyframes blink {
+
+      0%,
+      93%,
+      100% {
+        transform: scaleY(1);
+      }
+
+      96% {
+        transform: scaleY(.1);
+      }
+    }
+
+    .girl {
+      display: none;
+    }
+
+    body.is-girl .girl {
+      display: inline;
+    }
+
+    body.is-girl .boy {
+      display: none;
+    }
+
+    .bubble {
+      position: absolute;
+      bottom: 72px;
+      left: 50%;
+      padding: 8px 13px;
+      border-radius: 14px;
+      background: var(--ink);
+      color: #fff;
+      white-space: nowrap;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 700;
+      opacity: 0;
+      transform: translateX(-50%) scale(.7);
+      transform-origin: 50% 100%;
+      transition: opacity .2s, transform .25s cubic-bezier(.3, 1.6, .5, 1);
+    }
+
+    .bubble small {
+      display: block;
+      margin-top: 1px;
+      font-weight: 400;
+      font-size: 11px;
+      opacity: .75;
+    }
+
+    .bubble small:empty {
+      display: none;
+    }
+
+    .bubble::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      margin-left: -6px;
+      border: 6px solid transparent;
+      border-bottom: 0;
+      border-top-color: var(--ink);
+    }
+
+    .buddy.talk .bubble {
+      opacity: 1;
+      transform: translateX(-50%) scale(1);
+    }
+
+    .buddy.corner {
+      position: fixed;
+      left: 24px;
+      bottom: 92px;
+      width: 66px;
+      height: 93px;
+      z-index: 4;
+      cursor: pointer;
+      transition: left 2.6s ease-in-out, bottom .6s ease;
+    }
+
+    body[data-mode=overview] .buddy.corner {
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+    }
+
+    body[data-mode=overview] .buddy.corner .bubble {
+      left: 50%;
+      transform: translateX(-50%) scale(.7);
+      transform-origin: 50% 100%;
+    }
+
+
+    .buddy.corner .bubble {
+      bottom: 104px;
+      left: 0;
+      max-width: 230px;
+      white-space: normal;
+      width: max-content;
+      transform: scale(.7);
+      transform-origin: 20px 100%;
+    }
+
+    .buddy.corner.talk .bubble {
+      transform: scale(1);
+    }
+
+    .buddy.corner .bubble::after {
+      left: 26px;
+      margin-left: 0;
+    }
+
+    .buddy.corner.hop .sprite {
+      animation: hop .5s ease-out;
+    }
+
+    @keyframes hop {
+      40% {
+        transform: translateY(-22px);
+      }
+    }
+
+    @media (max-width:760px) {
+      .title p {
+        display: none;
+      }
+
+      .hero {
+        left: 20px;
+        right: 20px;
+        top: 60px;
+        transform: none;
+        max-width: none;
+      }
+
+      .hero ul,
+      .hero .hint {
+        display: none;
+      }
+
+      .hero .sub {
+        margin-top: 8px;
+      }
+
+      .hero .cta {
+        padding: 11px 20px;
+        font-size: 14px;
+      }
+
+      .card {
+        top: 64px;
+        left: 12px;
+      }
+
+      .rail {
+        right: 8px;
+      }
+
+      .rail button {
+        min-width: 0;
+        padding: 6px 9px;
+        font-size: 12px;
+      }
+
+      .buddy.corner {
+        bottom: 84px;
+        left: 10px;
+      }
+    }
+
+    @media (prefers-reduced-motion:reduce) {
+
+      .scene,
+      .buddy.corner,
+      .chip {
+        transition: none;
+      }
+
+      .buddy.walking svg,
+      .buddy.walking .legL,
+      .buddy.walking .legR,
+      .eyes {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+
+<body data-mode="overview">
+
+  <div class="hero" id="hero">
+    <div class="kicker">Chattogram</div>
+    <h1>BALI - ARCADE</h1>
+    <p class="sub">A beautiful mall in Chattogram, floor by floor.</p>
+    <ul>
+      <li>8 floors to explore</li>
+      <li>Accessories &amp; perfume downstairs</li>
+      <li>Women's and men's fashion above</li>
+    </ul><button class="cta" id="explore" type="button">Explore floors</button>
+    <p class="hint">or just click the building</p>
+  </div>
+  <div class="title focus-ui">
+    <h1>BALI - ARCADE</h1>
+    <p>Scroll or drag up and down to move through the floors.</p>
+  </div>
+  <div class="card focus-ui" id="card"><b id="c-name"></b><span id="c-tag"></span><small>Click the floor to step
+      inside</small></div>
+  <div class="scene" id="scene"></div>
+  <div class="rail focus-ui" id="rail"></div>
+  <div class="bar focus-ui"><button id="whole" type="button">&larr; Whole building</button><button id="up"
+      type="button">&#9650; Higher</button><button id="down" type="button">&#9660; Lower</button><button class="go"
+      id="enter" type="button">Step inside</button><button id="buddy-switch" type="button">Switch buddy</button></div>
+
+
+
+  <script>
+    /* ================= CONFIG ================= */
+    const BW = 804, BH = 717;                              // size of building.png (the 3D cutout)
+    const FLOORS = [
+      {name: 'Ground Floor', tag: 'Accessories & Perfume'},
+      {name: 'First Floor', tag: 'Accessories & Perfume'},
+      {name: 'Second Floor', tag: ''},
+      {name: "Women's Floor", tag: "Women's fashion"},
+      {name: "Men's Floor", tag: "Men's fashion"},
+      {name: 'Fifth Floor', tag: ''},
+      {name: 'Sixth Floor', tag: ''},
+      {name: 'Seventh Floor', tag: ''},
+    ];
+    const FLOOR_NAMES = FLOORS.map(f => f.name), N = FLOORS.length;
+    const SQ = 0.16, EDGE = 8, GAP = 36;                   // slab squash, slab thickness (px), spacing between slabs (px)
+    const $ = s => document.querySelector(s);
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+    /* ================= BUDDY ================= */
+    function buddyHTML() {
+      return `
+<div class="bubble"><span class="b-name"></span><small class="b-cat"></small></div>
+<div class="sprite"><svg viewBox="0 0 40 56">
+  <ellipse cx="20" cy="53" rx="11" ry="3" fill="rgba(35,37,74,.22)"/>
+  <rect class="legL" x="13" y="40" width="5" height="12" rx="2.5" fill="#23254a"/><rect class="legR" x="22" y="40" width="5" height="12" rx="2.5" fill="#23254a"/>
+  <rect x="10" y="27" width="20" height="17" rx="7" fill="#ff6b3d"/>
+  <circle cx="9" cy="35" r="3.2" fill="#f6d3b3"/><circle cx="31" cy="35" r="3.2" fill="#f6d3b3"/>
+  <g class="girl"><circle cx="6" cy="22" r="5" fill="#3a2a22"/><circle cx="34" cy="22" r="5" fill="#3a2a22"/><circle cx="20" cy="17" r="13" fill="#3a2a22"/></g>
+  <circle cx="20" cy="19" r="11.5" fill="#f6d3b3"/>
+  <g class="girl"><path d="M8.5 17 Q20 4 31.5 17 Q20 11 8.5 17Z" fill="#3a2a22"/><rect x="9" y="8" width="22" height="3" rx="1.5" fill="#ff6b3d"/></g>
+  <g class="boy"><path d="M8.5 16 A11.5 11.5 0 0 1 31.5 16Z" fill="#23254a"/><rect x="22" y="14" width="13" height="3.2" rx="1.6" fill="#23254a"/></g>
+  <g class="eyes"><circle cx="15.5" cy="21" r="1.6" fill="#23254a"/><circle cx="24.5" cy="21" r="1.6" fill="#23254a"/></g>
+  <circle cx="12" cy="25" r="2.2" fill="#f4a7a0" opacity=".8"/><circle cx="28" cy="25" r="2.2" fill="#f4a7a0" opacity=".8"/>
+  <path d="M16.5 25.5 Q20 28.5 23.5 25.5" stroke="#23254a" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+</svg></div>`;
+    }
+    function say(el, name, sub = '') {
+      el.classList.remove('talk'); void el.offsetWidth;
+      el.querySelector('.b-name').textContent = name; el.querySelector('.b-cat').textContent = sub; el.classList.add('talk');
+    }
+
+    /* ================= VERTICAL STACK ================= */
+    const scene = $('#scene');
+    const floorEls = [], chipEls = [];
+    const ground = document.createElement('div'); ground.className = 'ground'; scene.appendChild(ground);
+    FLOORS.forEach((f, i) => {
+      const el = document.createElement('div'); el.className = 'fl'; el.style.zIndex = i + 1;
+      el.innerHTML = `<div class="sq"><img class="edge" src="building_slab.png" alt=""><img class="slab" src="building_slab.png" alt=""><img class="full" src="building.png" alt="${f.name}" draggable="false"></div>`;
+      scene.appendChild(el);
+      floorEls.push({el, sq: el.querySelector('.sq'), edge: el.querySelector('.edge'), slab: el.querySelector('.slab'), full: el.querySelector('.full')});
+      const c = document.createElement('div'); c.className = 'chip'; c.style.zIndex = 50; c.textContent = f.name; scene.appendChild(c); chipEls.push(c);
+    });
+
+    let vw, vh, cx, cy, fullW, fullH, M, FHpx, cxO, roofRel;
+    function layout() {
+      vw = innerWidth; vh = innerHeight; const small = vw < 760;
+      const sc = Math.min(vw * (small ? .84 : .5) / BW, vh * (small ? .34 : .46) / BH);
+      fullW = BW * sc; fullH = BH * sc; cx = small ? vw / 2 : vw * .47; cy = vh * .52;
+      M = fullH / 2 + fullH * SQ / 2 + 26;                          // focus mode: distance to the neighbour slab
+      FHpx = Math.max(14, fullH * .055);                            // overview: height of one floor of the building body
+      cxO = small ? vw / 2 : vw * .64;
+      roofRel = ((small ? vh * .68 : vh * .54) - (N - 1) * FHpx / 2) - cy;   // overview: roof centre relative to cy (whole building centred)
+      floorEls.forEach(o => {Object.assign(o.el.style, {left: (cx - fullW / 2) + 'px', top: (cy - fullH / 2) + 'px', width: fullW + 'px', height: fullH + 'px'});});
+      ground.style.width = fullW * .9 + 'px';
+      render();
+    }
+    let focus = 0, target = 0, shown = -1, ov = 1, ovTarget = 1, introT0 = performance.now(), introDone = false;
+    const smooth = t => t * t * (3 - 2 * t), geo = [];
+    const posOf = d => {const ad = Math.abs(d); return -Math.sign(d) * (ad <= 1 ? ad * M : M + (ad - 1) * GAP);};   // focus mode: higher floors sit above
+    function render(now = performance.now()) {
+      const ovE = smooth(ov), dx = (cxO - cx) * ovE, introSec = (now - introT0) / 1000;
+      floorEls.forEach((o, i) => {
+        const d = i - focus, ad = Math.abs(d), e = smooth(Math.min(1, ad)), sF = 1 + (SQ - 1) * e;
+        const far = Math.max(ad - 1, 0), fade = Math.max(0, 1 - far * .4), roof = i === N - 1;
+        const yF = posOf(d), yO = roofRel + (N - 1 - i) * FHpx;                    // focus position vs. stacked-building position
+        const y = yF + (yO - yF) * ovE, s = sF + (1 - sF) * ovE;
+        const p = introDone ? 1 : (q => 1 - Math.pow(1 - q, 3))(clamp((introSec - i * .12) / .7, 0, 1));   // intro: floors drop in one by one
+        const dyI = introDone ? 0 : -(1 - p) * 520;
+        o.el.style.transform = `translate3d(${dx}px,${y + dyI}px,0)`;
+        o.sq.style.transform = `scaleY(${s})`;
+        const fullF = 1 - e, slabF = Math.min(1, e * 1.5) * fade, edgeF = e * fade;
+        o.full.style.opacity = (fullF + ((roof ? 1 : 0) - fullF) * ovE) * p;
+        o.slab.style.opacity = (slabF + ((roof ? 0 : 1) - slabF) * ovE) * p;
+        o.edge.style.opacity = (edgeF + (1 - edgeF) * ovE) * p;
+        o.edge.style.transform = `translateY(${EDGE / s}px)`;
+        geo[i] = {y, s, dx, vis: fade + (1 - fade) * ovE};
+        const c = chipEls[i], xF = Math.max(110, cx - fullW / 2 + 40), xO = cx + dx + fullW / 2 + 16;
+        c.style.left = (xF + (xO - xF) * ovE) + 'px';
+        c.style.transform = `translate(${-100 * (1 - ovE)}%,-50%)`;
+        c.style.top = (cy + y + dyI + ovE * (fullH * s / 2 - FHpx / 2) + (e > .5 ? EDGE / 2 : 0) * (1 - ovE)) + 'px';
+        c.style.opacity = (fade + (1 - fade) * ovE) * p * (vw < 760 ? 1 - ovE : 1);   // phones: no side labels on the overview
+        c.classList.toggle('on', ov < .5 && Math.round(focus) === i);
+      });
+      const g0 = cy + fullH / 2 - 14, gO = cy + roofRel + (N - 1) * FHpx + fullH / 2 - 14;
+      ground.style.top = (g0 + (gO - g0) * ovE) + 'px'; ground.style.left = (cx + dx - fullW * .45) + 'px';
+      ground.style.opacity = (1 - Math.min(1, Math.abs(focus - Math.round(focus)) * 2)) * (1 - ovE) + ovE * (introDone ? 1 : Math.min(1, introSec / 1.2));
+      const cur = clamp(Math.round(focus), 0, N - 1);
+      if (ovTarget === 0 && cur !== shown && Math.abs(focus - cur) < .2) {shown = cur; onFocusChange(cur);}
+    }
+    let raf = null, dragging = false;
+    function tick(now) {
+      focus += (target - focus) * (dragging ? .4 : .13); if (Math.abs(target - focus) < .0008) focus = target;
+      ov += (ovTarget - ov) * .085; if (Math.abs(ovTarget - ov) < .001) ov = ovTarget;
+      if (!introDone && (now - introT0) / 1000 > 1.7) introDone = true;
+      render(now); raf = (focus !== target || ov !== ovTarget || !introDone) ? requestAnimationFrame(tick) : null;
+    }
+    const go = () => {if (!raf) raf = requestAnimationFrame(tick);};
+    const setTarget = v => {target = clamp(v, 0, N - 1); go();};
+    function openFocus(i) {if (i != null) focus = target = clamp(i, 0, N - 1); ovTarget = 0; document.body.dataset.mode = 'focus'; shown = -1; go();}
+    function showOverview() {ovTarget = 1; document.body.dataset.mode = 'overview'; say(corner, 'This is the whole building!'); holdUntil = Date.now() + 3000; go();}
+
+    /* rail + card */
+    const rail = $('#rail');
+    rail.innerHTML = '';
+    [...FLOORS.keys()].reverse().forEach(i => {const b = document.createElement('button'); b.type = 'button'; b.textContent = FLOOR_NAMES[i]; b.dataset.i = i; b.addEventListener('click', () => setTarget(i)); rail.appendChild(b);});
+    let holdUntil = 0;
+    function onFocusChange(i) {
+      $('#c-name').textContent = FLOOR_NAMES[i]; $('#c-tag').textContent = FLOORS[i].tag || ' ';
+      rail.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.i === i));
+      if (typeof corner !== 'undefined') {holdUntil = Date.now() + 2500; say(corner, FLOOR_NAMES[i], FLOORS[i].tag || 'Click the floor to step inside');}
+    }
+
+    /* input: wheel / drag / keys / buttons */
+    let accum = 0, wheelLock = 0;
+    scene.addEventListener('wheel', e => {
+      e.preventDefault(); const now = performance.now(); if (now < wheelLock) return;
+      if (ovTarget === 1) {openFocus(0); wheelLock = now + 600; return;}              // any scroll on the building opens the floors
+      accum += e.deltaY; if (Math.abs(accum) < 50) return;
+      setTarget(Math.round(target) - Math.sign(accum)); accum = 0; wheelLock = now + 380;   // scroll down = lower floor
+    }, {passive: false});
+    let drag = null, moved = false;
+    scene.addEventListener('pointerdown', e => {drag = {y: e.clientY, y0: e.clientY}; moved = false;});
+    addEventListener('pointermove', e => {
+      if (!drag) return;
+      if (ovTarget === 1) {if (Math.abs(e.clientY - drag.y0) > 28) {moved = true; drag = null; openFocus(0);} return;}
+      if (!moved && Math.abs(dy) < 6) return;
+      moved = true; dragging = true; scene.classList.add('dragging');
+      target = clamp(target + dy / M, 0, N - 1); drag.y = e.clientY; go();                 // drag down = higher floor comes down to you
+    });
+    addEventListener('pointerup', () => {if (!drag) return; drag = null; dragging = false; scene.classList.remove('dragging'); if (moved) setTarget(Math.round(target));});
+    function floorAt(px, py) {
+      for (let i = N - 1; i >= 0; i--) {
+        const g = geo[i]; if (!g || g.vis < .25) continue;
+        if (Math.abs(px - (cx + g.dx)) <= fullW / 2 && Math.abs(py - (cy + g.y)) <= fullH * g.s / 2 + (g.s < .6 ? EDGE : 0)) return i;
+      }
+      return -1;
+    }
+    scene.addEventListener('click', e => {
+      if (moved) {moved = false; return;}
+      const i = floorAt(e.clientX, e.clientY); if (i < 0) return;
+      if (ovTarget === 1) {openFocus(i); return;}                                       // click a floor of the whole building
+      if (i === Math.round(target)) enterFloor(i); else setTarget(i);
+    });
+    $('#explore').addEventListener('click', () => openFocus(0));
+    $('#whole').addEventListener('click', showOverview);
+    $('#up').addEventListener('click', () => setTarget(Math.round(target) + 1));
+    $('#down').addEventListener('click', () => setTarget(Math.round(target) - 1));
+    $('#enter').addEventListener('click', () => enterFloor(Math.round(target)));
+    $('#buddy-switch').addEventListener('click', () => document.body.classList.toggle('is-girl'));
+    addEventListener('keydown', e => {
+      if (ovTarget === 1) {if (['Enter', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {e.preventDefault(); openFocus(0);} return;}
+      if (e.key === 'Escape') {showOverview(); return;}
+      if (e.key === 'ArrowUp' || e.key === 'PageUp') {e.preventDefault(); setTarget(Math.round(target) + 1);}
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {e.preventDefault(); setTarget(Math.round(target) - 1);}
+      if (e.key === 'Enter') enterFloor(Math.round(target));
+    });
+    addEventListener('resize', layout);
+
+    /* ================= CORNER BUDDY ================= */
+    const corner = document.createElement('div');
+    corner.className = 'buddy corner'; corner.innerHTML = buddyHTML(); document.body.appendChild(corner);
+    const MSGS_OV = ['Hey! Welcome to BALI - ARCADE, a beautiful mall in Chattogram!', 'Click any floor to look inside', '8 floors of fashion, accessories and more!'];
+    const MSGS_FOCUS = ['Scroll or drag to move between floors', 'Click the big floor to step inside', "Women's fashion is on the 3rd, men's on the 4th!", 'Accessories & perfume are downstairs'];
+    let msgI = 0, atRight = false; say(corner, MSGS_OV[0]);
+    setInterval(() => {if (Date.now() < holdUntil) return; const L_ = ovTarget === 1 ? MSGS_OV : MSGS_FOCUS; msgI = (msgI + 1) % L_.length; say(corner, L_[msgI]);}, 5400);
+    setInterval(() => {
+      if (corner.classList.contains('walking') || innerWidth < 760) return; atRight = !atRight; corner.classList.add('walking'); corner.querySelector('.sprite').style.transform = atRight ? 'scaleX(1)' : 'scaleX(-1)';
+      corner.style.left = atRight ? '230px' : '24px';
+      setTimeout(() => {corner.classList.remove('walking'); corner.querySelector('.sprite').style.transform = 'scaleX(1)';}, 2650);
+    }, 13000);
+    corner.addEventListener('click', () => {corner.classList.remove('hop'); void corner.offsetWidth; corner.classList.add('hop'); holdUntil = Date.now() + 3500; say(corner, ['Hehe, hi!', 'I know every shop here!', 'Pick a floor, I will guide you'][Math.floor(Math.random() * 3)]);});
+
+    function enterFloor(n) {
+      window.location.href = `floor-map.html?floor=${n}`;
+    }
+    layout(); go();
+  </script>
+</body>
+
+</html>
